@@ -1,7 +1,7 @@
 from datetime import datetime
 from sqlalchemy import ForeignKey, UniqueConstraint, DateTime
 from sqlalchemy.orm import DeclarativeBase
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 
 class Base(DeclarativeBase):
@@ -14,7 +14,6 @@ class Category(Base):
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     name: Mapped[str] = mapped_column(unique=True)
 
-
 class Name(Base):
     __tablename__ = "names"
 
@@ -25,6 +24,9 @@ class Name(Base):
     available_eu_char: Mapped[int | None]
     available_eu_family: Mapped[int | None]
     last_checked: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    name_categories: Mapped[list["NameCategory"]] = relationship(
+        "NameCategory", back_populates="name", passive_deletes=True
+    )
 
 
 class NameCategory(Base):
@@ -34,3 +36,4 @@ class NameCategory(Base):
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     name_id: Mapped[int] = mapped_column(ForeignKey("names.id", ondelete="CASCADE"))
     category_id: Mapped[int] = mapped_column(ForeignKey("categories.id"))
+    name: Mapped["Name"] = relationship("Name", back_populates="name_categories")
