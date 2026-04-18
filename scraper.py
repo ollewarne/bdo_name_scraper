@@ -15,7 +15,11 @@ DATABASE_URL = os.getenv("DATABASE_URL")
 if not DATABASE_URL:
     raise ValueError("DATABASE_URL not set")
 
-engine = create_engine(DATABASE_URL)
+engine = create_engine(
+    DATABASE_URL,
+    pool_pre_ping=True,
+    pool_recycle=300,
+)
 Session = sessionmaker(bind=engine)
 
 NAMES_DIR = os.path.join(os.path.dirname(__file__), "./word_files")
@@ -120,71 +124,102 @@ if __name__ == "__main__":
     for filename in name_files:
         if not filename.endswith(".txt"):
             continue
-        category_lable = os.path.splitext(filename)[0].replace("_", " ").title()
-        category_obj = session.query(Category).filter_by(name=category_lable).first()
-        if not category_obj:
-            category_obj = Category(name=category_lable)
-            session.add(category_obj)
-            session.flush()
+        category_lable = "unknown"
+        try:
+            category_lable = os.path.splitext(filename)[0].replace("_", " ").title()
+            category_obj = session.query(Category).filter_by(name=category_lable).first()
+            if not category_obj:
+                category_obj = Category(name=category_lable)
+                session.add(category_obj)
+                session.flush()
 
-        with open(os.path.join(NAMES_DIR, filename)) as file:
-            names = file.readlines()
-            for name in names:
-                name_obj = session.query(Name).filter_by(name=name.strip()).first()
-                if not name_obj:
-                    name_obj = Name(name=name.strip())
-                    session.add(name_obj)
-                    session.flush()
+            with open(os.path.join(NAMES_DIR, filename)) as file:
+                names = file.readlines()
+                for name in names:
+                    try:
+                        name_obj = session.query(Name).filter_by(name=name.strip()).first()
+                        if not name_obj:
+                            name_obj = Name(name=name.strip())
+                            session.add(name_obj)
+                            session.flush()
 
-                for region in REGIONS:
-                    for search_type in SEARCH_TYPES:
-                        available = 0
-                        result = check_name(name.strip(), region, search_type, proxy)
-                        while result == PROXY_FAILED:
-                            proxy = get_working_proxy(proxies)
-                            if proxy is None:
-                                session.close()
-                                raise SystemExit(1)
-                            result = check_name(
-                                name.strip(), region, search_type, proxy
+                        for region in REGIONS:
+                            for search_type in SEARCH_TYPES:
+                                available = 0
+                                result = check_name(
+                                    name.strip(), region, search_type, proxy
+                                )
+                                while result == PROXY_FAILED:
+                                    proxy = get_working_proxy(proxies)
+                                    if proxy is None:
+                                        session.close()
+                                        raise SystemExit(1)
+                                    result = check_name(
+                                        name.strip(), region, search_type, proxy
+                                    )
+                                if result:
+                                    available = 1
+                                col = COLUMN_MAP[(region, search_type)]
+                                setattr(name_obj, col, available)
+                                name_obj.last_checked = datetime.now(timezone.utc)
+
+                        existing = (
+                            session.query(NameCategory)
+                            .filter_by(name_id=name_obj.id, category_id=category_obj.id)
+                            .first()
+                        )
+                        if not existing:
+                            session.add(
+                                NameCategory(
+                                    name_id=name_obj.id, category_id=category_obj.id
+                                )
                             )
-                        if result:
-                            available = 1
-                        col = COLUMN_MAP[(region, search_type)]
-                        setattr(name_obj, col, available)
-                        name_obj.last_checked = datetime.now(timezone.utc)
 
-                existing = (
-                    session.query(NameCategory)
-                    .filter_by(name_id=name_obj.id, category_id=category_obj.id)
-                    .first()
-                )
-                if not existing:
-                    session.add(
-                        NameCategory(name_id=name_obj.id, category_id=category_obj.id)
-                    )
-
-                if not any(
-                    [
-                        name_obj.available_eu_family,
-                        name_obj.available_eu_char,
-                        name_obj.available_na_family,
-                        name_obj.available_na_char,
-                    ]
-                ):
-                    session.delete(name_obj)
-                try:
-                    session.commit()
-                except Exception as e:
-                    requests.post(
-                        WEBHOOK_URL,
-                        json={
-                            "content": f"FAILED: DB commit error on name '{name.strip()}' - {e}"
-                        },
-                    )
-                    session.rollback()
-                    raise
-                time.sleep(1)
+                        if not any(
+                            [
+                                name_obj.available_eu_family,
+                                name_obj.available_eu_char,
+                                name_obj.available_na_family,
+                                name_obj.available_na_char,
+                            ]
+                        ):
+                            session.delete(name_obj)
+                        try:
+                            session.commit()
+                        except Exception as e:
+                            requests.post(
+                                WEBHOOK_URL,
+                                json={
+                                    "content": f"FAILED: DB commit error on name '{name.strip()}' - {e}"
+                                },
+                            )
+                            session.rollback()
+                            session.close()
+                            session = Session()
+                            continue
+                        time.sleep(.5)
+                    except Exception as e:
+                        requests.post(
+                            WEBHOOK_URL,
+                            json={
+                                "content": f"WARNING: DB error on name '{name.strip()}' - {e}"
+                            },
+                        )
+                        session.rollback()
+                        session.close()
+                        session = Session()
+                        continue
+        except Exception as e:
+            requests.post(
+                WEBHOOK_URL,
+                json={
+                    "content": f"WARNING: DB error on name '{category_lable}' - {e}"
+                },
+            )
+            session.rollback()
+            session.close()
+            session = Session()
+            continue
 
     session.close()
     print("done scraping")
