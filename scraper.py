@@ -24,6 +24,10 @@ PROXY_LIST_URL = os.getenv("PROXY_LIST_URL")
 if not PROXY_LIST_URL:
     raise ValueError("PROXY_LIST_URL not set")
 
+WEBHOOK_URL = os.getenv("WEBHOOK_URL")
+if not WEBHOOK_URL:
+    raise ValueError("WEBHOOK_URL not set")
+
 MAX_RETRIES = 10
 MAX_PROXY_RETRIES = 3000
 PROXY_TIMEOUT = 2
@@ -71,6 +75,8 @@ def get_working_proxy(proxies):
         if proxy:
             print("found working proxy")
             return proxy
+    assert WEBHOOK_URL is not None
+    requests.post(WEBHOOK_URL, json={"content": "Failed: exhausted all proxy retries"})
     return None
 
 
@@ -103,6 +109,7 @@ def check_name(name, region, search_type, proxy):
 
 
 if __name__ == "__main__":
+    requests.post(WEBHOOK_URL, json={"content": "started scraping names"})
     proxies = load_proxies(PROXY_LIST_URL)
     proxy = get_working_proxy(proxies)
 
@@ -135,6 +142,9 @@ if __name__ == "__main__":
                         result = check_name(name.strip(), region, search_type, proxy)
                         while result == PROXY_FAILED:
                             proxy = get_working_proxy(proxies)
+                            if proxy is None:
+                                session.close()
+                                raise SystemExit(1)
                             result = check_name(
                                 name.strip(), region, search_type, proxy
                             )
@@ -163,8 +173,19 @@ if __name__ == "__main__":
                     ]
                 ):
                     session.delete(name_obj)
-                session.commit()
+                try:
+                    session.commit()
+                except Exception as e:
+                    requests.post(
+                        WEBHOOK_URL,
+                        json={
+                            "content": f"FAILED: DB commit error on name '{name.strip()}' - {e}"
+                        },
+                    )
+                    session.rollback()
+                    raise
                 time.sleep(1)
 
     session.close()
     print("done scraping")
+    requests.post(WEBHOOK_URL, json={"content": "done scraping names"})
