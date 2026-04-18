@@ -5,11 +5,13 @@ import os
 
 load_dotenv()
 
-DATABASE_URL = os.getenv("DATABASE_URL", "")
+DATABASE_URL = os.getenv("DATABASE_URL")
+if not DATABASE_URL:
+    raise ValueError("DATABASE_URL not set")
 
-engine = create_engine(DATABASE_URL)
 
 try:
+    engine = create_engine(DATABASE_URL)
     Base.metadata.create_all(engine)
     print("tables created")
 except Exception as e:
