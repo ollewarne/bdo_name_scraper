@@ -83,11 +83,13 @@ def validate_proxy(proxy):
 
 def get_working_proxy(proxies):
     print("looking for working proxy")
+    logger.info("looking for working proxy")
     for i in range(MAX_PROXY_RETRIES):
         print(f"attempt {i}", end="\r", flush=True)
         proxy = validate_proxy(random.choice(proxies))
         if proxy:
             print("found working proxy")
+            logger.info(f"found proxy {proxy}")
             return proxy
     assert WEBHOOK_URL is not None
     requests.post(WEBHOOK_URL, json={"content": "Failed: exhausted all proxy retries"})
@@ -113,9 +115,11 @@ def check_name(name, region, search_type, proxy):
                 continue
             soup = BeautifulSoup(response.text, "html.parser")
             if not soup.find("div", class_="container adventure"):
+                logger.warning("proxy blocked")
                 return PROXY_FAILED
             return soup.find("li", class_="no_result")
         except requests.exceptions.Timeout:
+            logger.warning("proxy failed")
             return PROXY_FAILED
         except Exception:
             time.sleep(0.5)
@@ -130,7 +134,6 @@ if __name__ == "__main__":
     logger.info("started scraping names")
     proxies = load_proxies(PROXY_LIST_URL)
     proxy = get_working_proxy(proxies)
-    logger.info(f"found working proxy {proxy}")
 
     session = Session()
 
@@ -181,7 +184,6 @@ if __name__ == "__main__":
                                 col = COLUMN_MAP[(region, search_type)]
                                 setattr(name_obj, col, available)
                                 name_obj.last_checked = datetime.now(timezone.utc)
-                                logger.info(f"added {name} - {col} - available: {available}")
 
                         existing = (
                             session.query(NameCategory)
