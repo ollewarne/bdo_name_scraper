@@ -8,6 +8,7 @@ from dotenv import load_dotenv
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from models import Name, Category, NameCategory
+from sqlalchemy.exc import OperationalError
 
 load_dotenv()
 
@@ -19,6 +20,13 @@ engine = create_engine(
     DATABASE_URL,
     pool_pre_ping=True,
     pool_recycle=300,
+    connect_args={
+        "keepalives": 1,
+        "keepalives_idle": 60,
+        "keepalives_interval": 10,
+        "keepalives_count": 5,
+        "connect_timeout": 10,
+    },
 )
 Session = sessionmaker(bind=engine)
 
@@ -127,7 +135,9 @@ if __name__ == "__main__":
         category_lable = "unknown"
         try:
             category_lable = os.path.splitext(filename)[0].replace("_", " ").title()
-            category_obj = session.query(Category).filter_by(name=category_lable).first()
+            category_obj = (
+                session.query(Category).filter_by(name=category_lable).first()
+            )
             if not category_obj:
                 category_obj = Category(name=category_lable)
                 session.add(category_obj)
@@ -137,7 +147,9 @@ if __name__ == "__main__":
                 names = file.readlines()
                 for name in names:
                     try:
-                        name_obj = session.query(Name).filter_by(name=name.strip()).first()
+                        name_obj = (
+                            session.query(Name).filter_by(name=name.strip()).first()
+                        )
                         if not name_obj:
                             name_obj = Name(name=name.strip())
                             session.add(name_obj)
@@ -186,6 +198,13 @@ if __name__ == "__main__":
                             session.delete(name_obj)
                         try:
                             session.commit()
+                        except OperationalError as e:
+                            requests.post(
+                                WEBHOOK_URL,
+                                json={"content": f"FATAL: DB connection lost - {e}"},
+                            )
+                            session.close()
+                            raise SystemExit(1)
                         except Exception as e:
                             requests.post(
                                 WEBHOOK_URL,
@@ -197,7 +216,14 @@ if __name__ == "__main__":
                             session.close()
                             session = Session()
                             continue
-                        time.sleep(.5)
+                        time.sleep(0.5)
+                    except OperationalError as e:
+                        requests.post(
+                            WEBHOOK_URL,
+                            json={"content": f"FATAL: DB connection lost - {e}"},
+                        )
+                        session.close()
+                        raise SystemExit(1)
                     except Exception as e:
                         requests.post(
                             WEBHOOK_URL,
@@ -209,12 +235,17 @@ if __name__ == "__main__":
                         session.close()
                         session = Session()
                         continue
+        except OperationalError as e:
+            requests.post(
+                WEBHOOK_URL,
+                json={"content": f"FATAL: DB connection lost - {e}"},
+            )
+            session.close()
+            raise SystemExit(1)
         except Exception as e:
             requests.post(
                 WEBHOOK_URL,
-                json={
-                    "content": f"WARNING: DB error on name '{category_lable}' - {e}"
-                },
+                json={"content": f"WARNING: DB error on name '{category_lable}' - {e}"},
             )
             session.rollback()
             session.close()
