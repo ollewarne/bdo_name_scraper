@@ -109,6 +109,8 @@ def check_name(name, region, search_type, proxy):
                 time.sleep(2**attempt)
                 continue
             soup = BeautifulSoup(response.text, "html.parser")
+            if not soup.find("div", class_="container adventure"):
+                return PROXY_FAILED
             return soup.find("li", class_="no_result")
         except requests.exceptions.Timeout:
             return PROXY_FAILED
