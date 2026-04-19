@@ -9,7 +9,9 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from models import Name, Category, NameCategory
 from sqlalchemy.exc import OperationalError
+from logger import setup_logger
 
+logger = setup_logger()
 load_dotenv()
 
 DATABASE_URL = os.getenv("DATABASE_URL")
@@ -89,6 +91,7 @@ def get_working_proxy(proxies):
             return proxy
     assert WEBHOOK_URL is not None
     requests.post(WEBHOOK_URL, json={"content": "Failed: exhausted all proxy retries"})
+    logger.warning("exhausted all proxy retries")
     return None
 
 
@@ -124,8 +127,10 @@ def check_name(name, region, search_type, proxy):
 
 if __name__ == "__main__":
     requests.post(WEBHOOK_URL, json={"content": "started scraping names"})
+    logger.info("started scraping names")
     proxies = load_proxies(PROXY_LIST_URL)
     proxy = get_working_proxy(proxies)
+    logger.info(f"found working proxy {proxy}")
 
     session = Session()
 
@@ -176,6 +181,7 @@ if __name__ == "__main__":
                                 col = COLUMN_MAP[(region, search_type)]
                                 setattr(name_obj, col, available)
                                 name_obj.last_checked = datetime.now(timezone.utc)
+                                logger.info(f"added {name} - {col} - available: {available}")
 
                         existing = (
                             session.query(NameCategory)
@@ -198,6 +204,7 @@ if __name__ == "__main__":
                             ]
                         ):
                             session.delete(name_obj)
+                            logger.warning(f"{name} not available at all, deleting")
                         try:
                             session.commit()
                         except OperationalError as e:
@@ -205,6 +212,7 @@ if __name__ == "__main__":
                                 WEBHOOK_URL,
                                 json={"content": f"FATAL: DB connection lost - {e}"},
                             )
+                            logger.error(f"fatal error: DB connection lost - {e}")
                             session.close()
                             raise SystemExit(1)
                         except Exception as e:
@@ -214,6 +222,7 @@ if __name__ == "__main__":
                                     "content": f"FAILED: DB commit error on name '{name.strip()}' - {e}"
                                 },
                             )
+                            logger.warning(f"DB commit error on {name} - {e}")
                             session.rollback()
                             session.close()
                             session = Session()
@@ -224,6 +233,7 @@ if __name__ == "__main__":
                             WEBHOOK_URL,
                             json={"content": f"FATAL: DB connection lost - {e}"},
                         )
+                        logger.error(f"fatal error: DB connection lost - {e}")
                         session.close()
                         raise SystemExit(1)
                     except Exception as e:
@@ -233,6 +243,7 @@ if __name__ == "__main__":
                                 "content": f"WARNING: DB error on name '{name.strip()}' - {e}"
                             },
                         )
+                        logger.warning(f"DB commit error on {name} - {e}")
                         session.rollback()
                         session.close()
                         session = Session()
@@ -242,6 +253,7 @@ if __name__ == "__main__":
                 WEBHOOK_URL,
                 json={"content": f"FATAL: DB connection lost - {e}"},
             )
+            logger.error(f"fatal error: DB connection lost - {e}")
             session.close()
             raise SystemExit(1)
         except Exception as e:
@@ -249,6 +261,7 @@ if __name__ == "__main__":
                 WEBHOOK_URL,
                 json={"content": f"WARNING: DB error on name '{category_lable}' - {e}"},
             )
+            logger.warning(f"DB commit error on {category_lable} - {e}")
             session.rollback()
             session.close()
             session = Session()
@@ -256,4 +269,5 @@ if __name__ == "__main__":
 
     session.close()
     print("done scraping")
+    logger.info("scraping done")
     requests.post(WEBHOOK_URL, json={"content": "done scraping names"})
