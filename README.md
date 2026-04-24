@@ -1,6 +1,7 @@
 # BDO Name Scraper
 
-Python scraper that checks name availability (character and family) across NA and EU regions in Black Desert Online.
+Python scraper that checks name availability (character and family) across NA and EU regions in Black Desert Online.  
+This page displays data collected with this scraper [BDO names](https://bdo-names.soew.se/)
 
 ## What it does
 
