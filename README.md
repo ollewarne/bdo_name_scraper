@@ -6,6 +6,10 @@ Python scraper that checks name availability (character and family) across NA an
 
 Reads names from `.txt` files in `word_files/`, checks each name against the BDO adventure page for all region/type combinations, and stores results in a PostgreSQL database.
 
+## Things I'm working on
+
+- [ ] add a queue and concurrency to speed up scraping large lists of names
+
 ## Requirements
 
 - PostgreSQL database
