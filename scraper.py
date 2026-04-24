@@ -219,7 +219,6 @@ if __name__ == "__main__":
                             session.close()
                             session = Session()
                             continue
-                        time.sleep(0.5)
                     except OperationalError as e:
                         requests.post(
                             WEBHOOK_URL,
