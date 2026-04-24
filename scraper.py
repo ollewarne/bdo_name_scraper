@@ -197,16 +197,6 @@ if __name__ == "__main__":
                                 )
                             )
 
-                        if not any(
-                            [
-                                name_obj.available_eu_family,
-                                name_obj.available_eu_char,
-                                name_obj.available_na_family,
-                                name_obj.available_na_char,
-                            ]
-                        ):
-                            session.delete(name_obj)
-                            logger.warning(f"{name} not available at all, deleting")
                         try:
                             session.commit()
                         except OperationalError as e:
